@@ -12,6 +12,10 @@
       rel="stylesheet"
       href="https://unpkg.com/@geoman-io/leaflet-geoman-free@latest/dist/leaflet-geoman.css"
     />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet-draw/dist/leaflet.draw.css"
+    />
     <!--<link rel="stylesheet" href="leaflet-geoman.css" />-->
 
     <script src="https://unpkg.com/leaflet@latest/dist/leaflet.js"></script>
@@ -21,6 +25,8 @@
     <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.5.0/proj4.js"></script> -->
     <!-- <script src="https://cdn.jsdelivr.net/npm/leaflet-bing-layer@3.3.1/leaflet-bing-layer.min.js"></script> -->
     <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
+    <script src="https://unpkg.com/leaflet-draw/dist/leaflet.draw.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
     <script src="shpwrite.js"></script>
 
     <style>
@@ -150,6 +156,13 @@
         left: 10;
         z-index: 9999;
       }
+
+      .loadingInfo2 {
+        position: fixed;
+        bottom: -0.5em;
+        left: 500;
+        z-index: 9999;
+      }
     </style>
   </head>
 
@@ -183,6 +196,7 @@
       </div>
     </div>
     <p class="loadingInfo" id="loadingInfo"></p>
+    <p class="loadingInfo2" id="counter"></p>
     <input type="file" id="theFile" style="display: none" />
 
     <script>
@@ -269,7 +283,16 @@
           document.querySelector("#loadingInfo").innerHTML =
             "Зареждащи се слоеве: " + loadingLayers;
       }
+
       changeLoadingLayers(0);
+
+      let counter = 0;
+
+      var counterElement = document.getElementById("counter");
+
+      function updateCounter() {
+        counterElement.textContent = "Брой селектирани обекти: " + counter;
+      }
 
       function processSVG(data, ind, tile) {
         let doc = new window.DOMParser().parseFromString(data, "text/xml");
@@ -349,7 +372,7 @@
       }
       function proxyError() {
         if (ind == "Search") {
-          doSearchError("Грешка при зареждането!");
+          // doSearchError("Грешка при зареждането!");
         } else if (ind == "Select") {
           getInfoError();
         } else {
@@ -480,73 +503,84 @@
 
       var InfoState = false;
 
-      map.on("click", function (e) {
-        if (InfoState) {
-          const lbox = L.latLng(e.latlng).toBounds(0.1);
-          const sw = lbox.getSouthWest();
-          const ne = lbox.getNorthEast();
-          getInfoPrepare();
+      var fetchOnClick = {
+        handleClick: function (e) {
+          if (InfoState) {
+            console.log(L.latLng(e.latlng));
+            const lbox = L.latLng(e.latlng).toBounds(0.1);
+            console.log(lbox);
+            const sw = lbox.getSouthWest();
+            console.log(sw);
 
-          const urlParcels =
-            "https://inspire.cadastre.bg/arcgis/services/Cadastral_Parcel/MapServer/WMSServer";
-          const urlBuildings =
-            "https://inspire.cadastre.bg/arcgis/services/Building/MapServer/WMSServer";
-          let params = `SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo&QUERY_LAYERS=0&INFO_FORMAT=text/xml&CRS=EPSG:4326&WIDTH=1&HEIGHT=1`;
-          params += `&BBOX=${sw.lat},${sw.lng},${ne.lat},${ne.lng}`;
+            const ne = lbox.getNorthEast();
+            console.log(ne);
 
-          if (window.AndroidGSM) {
-            AndroidGSM.proxy(`${url}?${params}`, "Select", "Select");
-          } else {
-            Promise.all([
-              fetch(urlParcels + `?${params}`),
-              fetch(urlBuildings + `?${params}`),
-            ])
-              .then((responses) =>
-                Promise.all(responses.map((response) => response.text()))
-              )
-              .then((res) => {
-                const [parcelsText, buildingsText] = res;
-                const parcelsXML = new window.DOMParser().parseFromString(
-                  parcelsText,
-                  "text/xml"
-                );
-                const buildingsXML = new window.DOMParser().parseFromString(
-                  buildingsText,
-                  "text/xml"
-                );
+            getInfoPrepare();
 
-                console.log("Parcel XML:");
-                console.log(parcelsXML);
-                console.log("Building XML:");
-                console.log(buildingsXML);
+            const urlParcels =
+              "https://inspire.cadastre.bg/arcgis/services/Cadastral_Parcel/MapServer/WMSServer";
+            const urlBuildings =
+              "https://inspire.cadastre.bg/arcgis/services/Building/MapServer/WMSServer";
+            let params = `SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo&QUERY_LAYERS=0&INFO_FORMAT=text/xml&CRS=EPSG:4326&WIDTH=1&HEIGHT=1`;
+            params += `&BBOX=${sw.lat},${sw.lng},${ne.lat},${ne.lng}`;
 
-                let ekatte;
+            if (window.AndroidGSM) {
+              AndroidGSM.proxy(`${url}?${params}`, "Select", "Select");
+            } else {
+              Promise.all([
+                fetch(urlParcels + `?${params}`),
+                fetch(urlBuildings + `?${params}`),
+              ])
+                .then((responses) =>
+                  Promise.all(responses.map((response) => response.text()))
+                )
+                .then((res) => {
+                  const [parcelsText, buildingsText] = res;
+                  const parcelsXML = new window.DOMParser().parseFromString(
+                    parcelsText,
+                    "text/xml"
+                  );
+                  const buildingsXML = new window.DOMParser().parseFromString(
+                    buildingsText,
+                    "text/xml"
+                  );
 
-                const f = parcelsXML.getElementsByTagName("FIELDS")[0];
+                  console.log("Parcel XML:");
+                  console.log(parcelsXML);
+                  console.log("Building XML:");
+                  console.log(buildingsXML);
 
-                const parEkatte = f.getAttribute("nationalCadastralReference");
+                  let ekatte;
 
-                if (buildingsXML.getElementsByTagName("FIELDS").length !== 0) {
-                  const fB = buildingsXML.getElementsByTagName("FIELDS")[0];
-                  if (fB.hasAttribute("id_localid")) {
-                    ekatte = fB.getAttribute("id_localid");
+                  const f = parcelsXML.getElementsByTagName("FIELDS")[0];
+
+                  const parEkatte = f.getAttribute(
+                    "nationalCadastralReference"
+                  );
+
+                  if (
+                    buildingsXML.getElementsByTagName("FIELDS").length !== 0
+                  ) {
+                    const fB = buildingsXML.getElementsByTagName("FIELDS")[0];
+                    if (fB.hasAttribute("id_localid")) {
+                      ekatte = fB.getAttribute("id_localid");
+                    } else {
+                      ekatte = parEkatte;
+                    }
                   } else {
                     ekatte = parEkatte;
                   }
-                } else {
-                  ekatte = parEkatte;
-                }
 
-                console.log(ekatte);
-
-                fetchEkate(ekatte);
-              })
-              .catch((е) => {
-                getInfoError();
-              });
+                  fetchEkate(ekatte);
+                })
+                .catch((е) => {
+                  getInfoError();
+                });
+            }
           }
-        }
-      });
+        },
+      };
+      map.on("click", fetchOnClick.handleClick);
 
       document
         .querySelector("#infoDialogWrapper")
@@ -612,10 +646,10 @@
                 } else {
                   doSearchError("Обекта не е намерен!");
                 }
-              })
-              .catch(() => {
-                doSearchError("Грешка при зареждането!");
               });
+            // .catch(() => {
+            //   doSearchError("Грешка при зареждането!");
+            // });
           }
         }
       });
@@ -652,22 +686,22 @@
             )
             .then((res) => res.json())
             .then((res) => {
-              //console.warn("GeoJSON EKATE", res);
               if (
                 res.results &&
                 res.results[0] &&
                 sessionStorage.getItem(ekateEid) === null
               ) {
                 doSelectReturn(res.results[0].geometry.rings, ekateEid);
-                console.log(res.results[0].geometry.rings);
+                counter++;
+                updateCounter();
               }
               // else {
               //   doSelectError("Обекта не е намерен или е вече избран!");
               // }
-            })
-            .catch(() => {
-              doSearchError("Грешка при зареждането!");
             });
+          // .catch(() => {
+          //   doSearchError("Грешка при зареждането!");
+          // });
         }
       }
 
@@ -709,6 +743,8 @@
         toggle: false,
         afterClick(e, btn) {
           clearShapes();
+          counter = 0;
+          updateCounter();
         },
       });
 
@@ -923,11 +959,12 @@
       }).addTo(map);
 
       var fg = L.featureGroup();
+      map.addLayer(fg);
+      map.addControl(fg);
 
       map.on("pm:drawstart", ({ workingLayer }) => {
         if (!(workingLayer instanceof L.Marker))
           workingLayer.showMeasurements({ showTotalDistance: false });
-
         workingLayer.on("pm:vertexadded", (e) => {
           workingLayer.updateMeasurements({ showTotalDistance: false });
         });
@@ -947,6 +984,7 @@
           }
         });
       });
+
       map.on("pm:drawend", (e) => {
         polyline.setLatLngs([]);
         saveShapesDelayed();
@@ -985,6 +1023,111 @@
       map.on("pm:globaleditmodetoggled", ({ enabled }) => {
         if (!enabled) saveShapesDelayed();
       });
+
+      var drawnItems = new L.FeatureGroup();
+      map.addLayer(drawnItems);
+
+      var drawControl = new L.Control.Draw({
+        edit: {
+          featureGroup: drawnItems,
+        },
+        draw: {
+          polygon: true,
+          polyline: false,
+          rectangle: false,
+          circle: false,
+          circlemarker: false,
+          marker: false,
+        },
+      });
+      map.addControl(drawControl);
+
+      map.on("draw:created", function (e) {
+        handleDrawEvent(e);
+      });
+
+      function handleDrawEvent(e) {
+        var layer = e.layer;
+        drawnItems.addLayer(layer);
+
+        var latlngs = layer.getLatLngs()[0];
+        var coordinates = latlngs.map(function (latlng) {
+          return [latlng.lng, latlng.lat];
+        });
+
+        // Close the polygon if it's not already closed
+        if (
+          coordinates[0][0] !== coordinates[coordinates.length - 1][0] ||
+          coordinates[0][1] !== coordinates[coordinates.length - 1][1]
+        ) {
+          coordinates.push(coordinates[0]);
+        }
+
+        var polygon = turf.polygon([coordinates]);
+        var bbox = turf.bbox(polygon);
+        var cellSide = 0.001; // Distance across each cell of the grid, in kilometers. Adjust for finer or coarser points
+        var options = { units: "kilometers" };
+        var pointGrid = turf.pointGrid(bbox, cellSide, options);
+
+        // Filter points to include only those inside the polygon
+        var pointsInside = turf.pointsWithinPolygon(pointGrid, polygon);
+
+        pointsInside.features.forEach(function (feature) {
+          var coord = feature.geometry.coordinates;
+          // Convert coordinates back to Leaflet's format
+          var latlng = new L.LatLng(coord[1], coord[0]);
+
+          const lbox = L.latLng(latlng).toBounds(0.1);
+
+          const sw = lbox.getSouthWest();
+          const ne = lbox.getNorthEast();
+
+          const urlParcels =
+            "https://inspire.cadastre.bg/arcgis/services/Cadastral_Parcel/MapServer/WMSServer";
+          const urlBuildings =
+            "https://inspire.cadastre.bg/arcgis/services/Building/MapServer/WMSServer";
+          let params = `SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo&QUERY_LAYERS=0&INFO_FORMAT=text/xml&CRS=EPSG:4326&WIDTH=1&HEIGHT=1`;
+          params += `&BBOX=${sw.lat},${sw.lng},${ne.lat},${ne.lng}`;
+
+          Promise.all([
+            fetch(urlParcels + `?${params}`),
+            fetch(urlBuildings + `?${params}`),
+          ])
+            .then((responses) =>
+              Promise.all(responses.map((response) => response.text()))
+            )
+            .then((res) => {
+              const [parcelsText, buildingsText] = res;
+              const parcelsXML = new window.DOMParser().parseFromString(
+                parcelsText,
+                "text/xml"
+              );
+              const buildingsXML = new window.DOMParser().parseFromString(
+                buildingsText,
+                "text/xml"
+              );
+
+              let ekatte;
+
+              const f = parcelsXML.getElementsByTagName("FIELDS")[0];
+
+              const parEkatte = f.getAttribute("nationalCadastralReference");
+
+              if (buildingsXML.getElementsByTagName("FIELDS").length !== 0) {
+                const fB = buildingsXML.getElementsByTagName("FIELDS")[0];
+                if (fB.hasAttribute("id_localid")) {
+                  ekatte = fB.getAttribute("id_localid");
+                } else {
+                  ekatte = parEkatte;
+                }
+              } else {
+                ekatte = parEkatte;
+              }
+
+              fetchEkate(ekatte);
+            });
+        });
+      }
 
       function showAlert(message) {
         if (window.AndroidGSM) {
